@@ -1,0 +1,10 @@
+#prog_timestamp=40.296654
+#gps_timestamp=1473090661.400000+-0.005000
+#latitude=52.449638+-10.274000
+#longitude=-1.928727+-8.981000
+#speed=0.005000+-102.740000
+#climb=0.000000+-nan
+#altitude=197.000000+-28.750000
+#real_time=20000
+#live_time=19937
+#sleep_time=20000
