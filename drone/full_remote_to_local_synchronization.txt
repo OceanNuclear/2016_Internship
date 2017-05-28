@@ -1,0 +1,11 @@
+# Connect
+open scp://pi:raspberry@raspberrypi.mshome.net/ -hostkey="ecdsa-sha2-nistp256 256 eb:c2:a2:32:75:7c:7b:58:a3:8e:b5:06:80:ff:b7:cc"
+
+# Force testmode transfer
+synchronize local DroneData/live live
+
+# Disconnect
+close
+
+# Exit WinSCP
+exit

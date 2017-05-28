@@ -1,0 +1,133 @@
+#version 150
+
+out vec4 FragColor;
+in vec4 vpos;
+
+//uniform mat4 p3d_ModelViewMatrix;
+//uniform mat4 p3d_ModelViewMatrixTsranspose;
+uniform mat4 p3d_ModelViewProjectionMatrix;
+uniform mat4 p3d_ModelViewProjectionMatrixInverse;
+uniform mat4 p3d_ModelViewMatrixInverse;
+uniform mat4 p3d_ModelViewMatrix;
+//uniform mat4 p3d_ProjectionMatrixInverse;
+//uniform mat4 p3d_ViewMatrixInverse;
+uniform sampler2D depth_tex;
+
+uniform float absorption;
+uniform sampler3D density_tex;
+
+uniform vec3 light_pos;
+uniform vec3 light_intensity;
+
+uniform float focal_length;
+uniform vec2 window_size;
+
+const float max_dist = sqrt(2.0);
+
+const int num_samples = 128;
+const float step_size = max_dist / float(num_samples);
+
+const int num_light_samples = 16;
+const float light_scale = max_dist / float(num_light_samples);
+
+const float density_factor = 10;
+
+struct Ray
+{
+    vec4 origin;
+    vec3 dir;
+};
+
+
+struct AABB
+{
+    vec4 min;
+    vec4 max;
+};
+
+// http://prideout.net/blog/?p=64
+bool intersect_ray_box(Ray ray, AABB aabb, out float t0, out float t1)
+{
+    vec3 inv_dir = 1 / ray.dir;
+    vec3 t_bottom = inv_dir * (aabb.min - ray.origin).xyz;
+    vec3 t_top = inv_dir * (aabb.max - ray.origin).xyz;
+    vec3 t_min = min(t_top, t_bottom);
+    vec3 t_max = max(t_top, t_bottom);
+
+    vec2 t = max(t_min.xx, t_min.yz);
+    t0 = max(t.x, t.y);
+
+    t = min(t_max.xx, t_max.yz);
+    t1 = min(t.x, t.y);
+    return t0 <= t1;
+}
+
+void main()
+{
+    // Now from clip to model
+    vec4 frag_model = vpos;
+    vec4 ray_origin_model = p3d_ModelViewMatrixInverse * vec4(0, 0, 0, 1);
+    vec3 to_frag_model = (frag_model - ray_origin_model).xyz;
+
+    Ray ray = Ray(ray_origin_model, normalize(to_frag_model));
+    AABB box = AABB(vec4(-1, -1, -1, 1), vec4(1, 1, 1, 1));
+
+    float near, far;
+    intersect_ray_box(ray, box, near, far);
+
+    if (near < 0.0)
+        near = 0.0;
+
+    vec4 p_near = ray.origin + vec4(ray.dir * near, 0.0);
+    vec4 p_far = ray.origin + vec4(ray.dir * far, 0.0);
+
+    vec4 p_near_uv = (p_near + 1) / 2;
+    vec4 p_far_uv = (p_far + 1) / 2;
+
+    vec4 pos = p_near_uv;
+    vec4 step = normalize(p_far_uv - p_near_uv) * step_size;
+    float travel = distance(p_far_uv, p_near_uv);
+
+    float transmittance = 1.0;
+    vec3 radiance_in_scattered = vec3(0.0);
+
+    // Do Marching
+    for (int i=0; i < num_samples && travel > 0.0; i++, pos += step, travel -= step_size)
+    {
+
+        float density = texture(density_tex, pos.xyz).x * density_factor;
+        if (density <= 0.0)
+            continue;
+
+        vec4 pos_in_clip = p3d_ModelViewProjectionMatrix * ((2 * pos)-1);
+        vec3 pos_in_screen = pos_in_clip.xyz / pos_in_clip.w;
+        vec3 ndc = (pos_in_screen + 1.) / 2.;
+
+        float depth = texture(depth_tex, ndc.xy).x;
+        if (depth < ndc.z)
+          continue;
+
+        transmittance *= 1.0 - density * step_size * absorption;
+        if (transmittance <= 0.01)
+            break;
+
+        vec3 light_dir = normalize(light_pos - pos.xyz) * light_scale;
+        float transmisttance_light = 1.0;
+        vec3 light_sample_pos = pos.xyz + light_dir;
+
+        for (int s=0; s < num_light_samples; s++)
+        {
+            float light_density = texture(density_tex, light_sample_pos).x;
+            transmisttance_light *= 1.0 - absorption  * light_scale * light_density;
+
+            if (transmisttance_light <= 0.01)
+                light_sample_pos += light_dir;
+        }
+
+      vec3 li = light_intensity * transmisttance_light;
+      radiance_in_scattered += li * transmittance * density * step_size;
+    }
+
+    FragColor.rgb =  radiance_in_scattered;
+    FragColor.a = 1 - transmittance;
+}
